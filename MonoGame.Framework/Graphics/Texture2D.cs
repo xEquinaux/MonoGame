@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics.PackedVector;
 using MonoGame.Framework.Utilities;
+using SharpDX.Direct3D11;
 
 namespace Microsoft.Xna.Framework.Graphics
 {
@@ -42,8 +43,8 @@ namespace Microsoft.Xna.Framework.Graphics
             SwapChainRenderTarget,
         }
 
-		internal int width;
-		internal int height;
+        internal int width;
+        internal int height;
         internal int ArraySize;
 
         internal float TexelWidth { get; private set; }
@@ -56,7 +57,7 @@ namespace Microsoft.Xna.Framework.Graphics
         {
             get
             {
-				return new Rectangle(0, 0, this.width, this.height);
+                return new Rectangle(0, 0, this.width, this.height);
             }
         }
 
@@ -216,13 +217,13 @@ namespace Microsoft.Xna.Framework.Graphics
         /// texture arrays.
         /// </exception>
         protected Texture2D(GraphicsDevice graphicsDevice, int width, int height, bool mipmap, SurfaceFormat format, SurfaceType type, bool shared, int arraySize)
-		{
+        {
             if (graphicsDevice == null)
                 throw new ArgumentNullException("graphicsDevice", FrameworkResources.ResourceCreationWhenDeviceIsNull);
             if (width <= 0)
-                throw new ArgumentOutOfRangeException("width","Texture width must be greater than zero");
+                throw new ArgumentOutOfRangeException("width", "Texture width must be greater than zero");
             if (height <= 0)
-                throw new ArgumentOutOfRangeException("height","Texture height must be greater than zero");
+                throw new ArgumentOutOfRangeException("height", "Texture height must be greater than zero");
             if (arraySize > 1 && !graphicsDevice.GraphicsCapabilities.SupportsTextureArrays)
                 throw new ArgumentException("Texture arrays are not supported on this graphics device", "arraySize");
 
@@ -237,8 +238,8 @@ namespace Microsoft.Xna.Framework.Graphics
             this.ArraySize = arraySize;
 
             // Texture will be assigned by the swap chain.
-		    if (type == SurfaceType.SwapChainRenderTarget)
-		        return;
+            if (type == SurfaceType.SwapChainRenderTarget)
+                return;
 
             PlatformConstruct(width, height, mipmap, format, type, shared);
         }
@@ -453,7 +454,7 @@ namespace Microsoft.Xna.Framework.Graphics
         /// </exception>
         /// <exception cref="ArgumentNullException">The <paramref name="data"/> parameter is null.</exception>
 		public void SetData<T>(T[] data) where T : struct
-		{
+        {
             Rectangle checkedRect;
             ValidateParams(0, 0, null, data, 0, data.Length, out checkedRect);
             PlatformSetData(0, data, 0, data.Length);
@@ -613,9 +614,9 @@ namespace Microsoft.Xna.Framework.Graphics
         /// </exception>
         /// <exception cref="ArgumentNullException">The <paramref name="data"/> parameter is null.</exception>
 		public void GetData<T>(T[] data, int startIndex, int elementCount) where T : struct
-		{
-			this.GetData(0, null, data, startIndex, elementCount);
-		}
+        {
+            this.GetData(0, null, data, startIndex, elementCount);
+        }
 
         /// <summary>
         /// Copies texture data into an array
@@ -639,12 +640,12 @@ namespace Microsoft.Xna.Framework.Graphics
         /// </list>
         /// </exception>
         /// <exception cref="ArgumentNullException">The <paramref name="data"/> parameter is null.</exception>
-        public void GetData<T> (T[] data) where T : struct
-		{
-		    if (data == null)
-		        throw new ArgumentNullException("data");
-			this.GetData(0, null, data, 0, data.Length);
-		}
+        public void GetData<T>(T[] data) where T : struct
+        {
+            if (data == null)
+                throw new ArgumentNullException("data");
+            this.GetData(0, null, data, 0, data.Length);
+        }
 
         /// <summary>
         /// Creates a <see cref="Texture2D"/> from a file, supported formats bmp, gif, jpg, png, tif and dds (only for simple textures).
@@ -696,7 +697,7 @@ namespace Microsoft.Xna.Framework.Graphics
         /// the images should be identical.
         /// </remarks>
         public static Texture2D FromStream(GraphicsDevice graphicsDevice, Stream stream, Action<byte[]> colorProcessor)
-		{
+        {
             if (graphicsDevice == null)
                 throw new ArgumentNullException("graphicsDevice");
             if (stream == null)
@@ -706,7 +707,7 @@ namespace Microsoft.Xna.Framework.Graphics
             {
                 return PlatformFromStream(graphicsDevice, stream, colorProcessor);
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 throw new InvalidOperationException("This image format is not supported", e);
             }
@@ -999,6 +1000,43 @@ namespace Microsoft.Xna.Framework.Graphics
             }
 
             return colorData;
+        }
+
+        /// <summary>
+        ///     Changes the texture's pixels; https://community.monogame.net/t/is-there-anyway-to-accept-texture2d-setdata-in-intptr/15658
+        /// </summary>
+        /// <param name="data">New data for the texture</param>
+        public void SetData(IntPtr data)
+        {
+            PlatformSetData(0, data);
+        }
+
+        private void PlatformSetData(int level, IntPtr data)
+        {
+            int w, h;
+            GetSizeForLevel(Width, Height, level, out w, out h);
+
+            // For DXT compressed formats the width and height must be
+            // a multiple of 4 for the complete mip level to be set.
+            if (_format.IsCompressedFormat())
+            {
+                w = (w + 3) & ~3;
+                h = (h + 3) & ~3;
+            }
+
+            var region = new ResourceRegion();
+            region.Top = 0;
+            region.Front = 0;
+            region.Back = 1;
+            region.Bottom = h;
+            region.Left = 0;
+            region.Right = w;
+
+            // TODO: We need to deal with threaded contexts here!
+            var subresourceIndex = CalculateSubresourceIndex(0, level);
+            var d3dContext = GraphicsDevice._d3dContext;
+            lock (d3dContext)
+                d3dContext.UpdateSubresource(GetTexture(), subresourceIndex, region, data, GetPitch(w), 0);
         }
     }
 }
